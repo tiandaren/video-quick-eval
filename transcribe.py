@@ -6,6 +6,7 @@
 - 显示每个阶段的耗时
 - 支持多提示词处理
 - 支持批量处理
+- 支持本地视频文件
 """
 import os
 import sys
@@ -13,6 +14,7 @@ import json
 import logging
 import time
 import argparse
+import subprocess
 from pathlib import Path
 from typing import Optional, List
 from datetime import datetime
@@ -70,6 +72,10 @@ def format_time(seconds: float) -> str:
 
 def detect_platform(url: str) -> str:
     """检测视频平台"""
+    # 先检查是否为本地文件
+    if os.path.exists(url) or (not url.startswith('http://') and not url.startswith('https://')):
+        return 'Local'
+
     url_lower = url.lower()
     if 'bilibili.com' in url_lower or 'b23.tv' in url_lower:
         return 'Bilibili'
@@ -176,6 +182,64 @@ def download_audio(video_url: str) -> tuple[str, str]:
     elapsed = time.time() - start_time
     logger.info(f"音频下载完成: {title} (耗时: {format_time(elapsed)})")
     return audio_path, title
+
+def extract_audio_from_local_video(video_path: str, quality: str = "fast") -> tuple[str, str]:
+    """从本地视频提取音频"""
+    start_time = time.time()
+    logger.info(f"从本地视频提取音频: {video_path}")
+
+    # 检查文件是否存在
+    if not os.path.exists(video_path):
+        raise FileNotFoundError(f"本地视频文件不存在: {video_path}")
+
+    # 检查是否为视频文件
+    video_extensions = {'.mp4', '.avi', '.mkv', '.mov', '.flv', '.wmv', '.webm', '.m4v'}
+    video_path_obj = Path(video_path)
+    if video_path_obj.suffix.lower() not in video_extensions:
+        raise ValueError(f"不支持的视频格式: {video_path_obj.suffix}")
+
+    # 生成音频文件名
+    title = video_path_obj.stem
+    audio_path = str(DATA_DIR / f"{title}.mp3")
+
+    # 音频质量映射
+    quality_map = {
+        "fast": "32",
+        "medium": "64",
+        "slow": "128"
+    }
+    bitrate = quality_map.get(quality, '64')
+
+    try:
+        # 使用 ffmpeg 提取音频并转换为 mp3
+        cmd = [
+            'ffmpeg',
+            '-i', video_path,
+            '-vn',  # 不处理视频
+            '-acodec', 'libmp3lame',
+            '-ab', f'{bitrate}k',
+            '-ar', '44100',
+            '-y',  # 覆盖已存在的文件
+            audio_path
+        ]
+
+        result = subprocess.run(
+            cmd,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            check=True
+        )
+
+        elapsed = time.time() - start_time
+        logger.info(f"音频提取完成: {title} (耗时: {format_time(elapsed)})")
+        return audio_path, title
+
+    except subprocess.CalledProcessError as e:
+        logger.error(f"音频提取失败: {e.stderr.decode('utf-8', errors='ignore')}")
+        raise RuntimeError(f"FFmpeg 提取音频失败: {e}")
+    except FileNotFoundError:
+        raise RuntimeError("FFmpeg 未安装或不在 PATH 中,请先安装 FFmpeg")
+
 
 # ==================== 音频转写 ====================
 def transcribe_audio(
@@ -381,13 +445,21 @@ def process_video(
     if prompt_names is None:
         prompt_names = []
 
-    # 1. 下载音频
-    print(f"📥 步骤 1: 下载音频 ({platform})...")
-    try:
-        audio_path, title = download_audio(video_url)
-    except Exception as e:
-        logger.error(f"下载失败: {e}")
-        return {"success": False, "error": str(e), "video_url": video_url, "platform": platform}
+    # 1. 下载音频或从本地视频提取音频
+    if platform == "Local":
+        print(f"📁 步骤 1: 从本地视频提取音频...")
+        try:
+            audio_path, title = extract_audio_from_local_video(video_url)
+        except Exception as e:
+            logger.error(f"音频提取失败: {e}")
+            return {"success": False, "error": str(e), "video_url": video_url, "platform": platform}
+    else:
+        print(f"📥 步骤 1: 下载音频 ({platform})...")
+        try:
+            audio_path, title = download_audio(video_url)
+        except Exception as e:
+            logger.error(f"下载失败: {e}")
+            return {"success": False, "error": str(e), "video_url": video_url, "platform": platform}
 
     # 2. 转写音频
     print("\n🎤 步骤 2: 转写音频...")
@@ -595,6 +667,7 @@ def main():
     )
 
     parser.add_argument('--url', type=str, help='视频链接')
+    parser.add_argument('--local', type=str, help='本地视频文件路径')
     parser.add_argument('--batch', type=str, help='批量处理文件（每行一个 URL）')
     parser.add_argument('--search', type=str, help='B站搜索关键词')
     parser.add_argument('--search-count', type=int, default=5, help='搜索结果数量（默认5）')
@@ -713,10 +786,10 @@ def main():
         return
 
     # 单个视频处理
-    video_url = args.url
+    video_url = args.url or args.local
     if not video_url:
         # 交互式模式
-        print("\n请输入视频链接:")
+        print("\n请输入视频链接或本地视频文件路径:")
         video_url = input("> ").strip()
 
         if not video_url:

@@ -1,10 +1,13 @@
 """
 视频下载器模块
-支持 Bilibili、YouTube 等平台的视频/音频下载
+支持 Bilibili、YouTube 等平台的视频/音频下载,以及本地视频处理
 """
 import os
+import subprocess
+import json
 from abc import ABC, abstractmethod
 from typing import Optional
+from pathlib import Path
 
 import yt_dlp
 
@@ -252,10 +255,157 @@ class YoutubeDownloader(Downloader):
         return video_path
 
 
+class LocalVideoDownloader(Downloader):
+    """本地视频处理器"""
+
+    def __init__(self):
+        super().__init__()
+        logger.info("初始化本地视频处理器")
+
+    def download(
+            self,
+            video_url: str,
+            output_dir: Optional[str] = None,
+            quality: DownloadQuality = "fast",
+            need_video: Optional[bool] = False
+    ) -> AudioDownloadResult:
+        """
+        从本地视频提取音频
+
+        :param video_url: 本地视频文件路径
+        :param output_dir: 输出目录
+        :param quality: 音频质量
+        :param need_video: 是否需要视频(本地视频已存在,忽略此参数)
+        :return: AudioDownloadResult 对象
+        """
+        video_path = Path(video_url)
+
+        # 检查文件是否存在
+        if not video_path.exists():
+            raise FileNotFoundError(f"本地视频文件不存在: {video_path}")
+
+        if not video_path.is_file():
+            raise ValueError(f"路径不是文件: {video_path}")
+
+        # 检查是否为视频文件
+        video_extensions = {'.mp4', '.avi', '.mkv', '.mov', '.flv', '.wmv', '.webm', '.m4v'}
+        if video_path.suffix.lower() not in video_extensions:
+            raise ValueError(f"不支持的视频格式: {video_path.suffix}")
+
+        if output_dir is None:
+            output_dir = self.cache_data
+
+        os.makedirs(output_dir, exist_ok=True)
+
+        # 生成音频文件名
+        video_id = video_path.stem
+        audio_path = os.path.join(output_dir, f"{video_id}.mp3")
+
+        # 使用 ffmpeg 提取音频
+        logger.info(f"从本地视频提取音频: {video_path}")
+
+        try:
+            # 使用 ffmpeg 提取音频并转换为 mp3
+            bitrate = QUALITY_MAP.get(quality, '64')
+            cmd = [
+                'ffmpeg',
+                '-i', str(video_path),
+                '-vn',  # 不处理视频
+                '-acodec', 'libmp3lame',
+                '-ab', f'{bitrate}k',
+                '-ar', '44100',
+                '-y',  # 覆盖已存在的文件
+                audio_path
+            ]
+
+            result = subprocess.run(
+                cmd,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                check=True
+            )
+
+            logger.info(f"音频提取完成: {audio_path}")
+
+        except subprocess.CalledProcessError as e:
+            logger.error(f"音频提取失败: {e.stderr.decode('utf-8', errors='ignore')}")
+            raise RuntimeError(f"FFmpeg 提取音频失败: {e}")
+        except FileNotFoundError:
+            raise RuntimeError("FFmpeg 未安装或不在 PATH 中,请先安装 FFmpeg")
+
+        # 获取视频信息(时长等)
+        duration = self._get_video_duration(str(video_path))
+        title = video_path.stem
+
+        return AudioDownloadResult(
+            file_path=audio_path,
+            title=title,
+            duration=duration,
+            cover_url=None,
+            platform="local",
+            video_id=video_id,
+            raw_info={"local_path": str(video_path)},
+            video_path=str(video_path)
+        )
+
+    def download_video(
+            self,
+            video_url: str,
+            output_dir: Optional[str] = None,
+    ) -> str:
+        """
+        本地视频不需要下载,直接返回路径
+
+        :param video_url: 本地视频文件路径
+        :param output_dir: 输出目录(忽略)
+        :return: 视频文件路径
+        """
+        video_path = Path(video_url)
+
+        if not video_path.exists():
+            raise FileNotFoundError(f"本地视频文件不存在: {video_path}")
+
+        logger.info(f"使用本地视频: {video_path}")
+        return str(video_path)
+
+    @staticmethod
+    def _get_video_duration(video_path: str) -> int:
+        """
+        获取视频时长(秒)
+
+        :param video_path: 视频文件路径
+        :return: 时长(秒)
+        """
+        try:
+            cmd = [
+                'ffprobe',
+                '-v', 'error',
+                '-show_entries', 'format=duration',
+                '-of', 'json',
+                video_path
+            ]
+
+            result = subprocess.run(
+                cmd,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                check=True
+            )
+
+            info = json.loads(result.stdout.decode('utf-8'))
+            duration = float(info.get('format', {}).get('duration', 0))
+            return int(duration)
+
+        except Exception as e:
+            logger.warning(f"无法获取视频时长: {e}")
+            return 0
+
+
 # 平台下载器映射
 PLATFORM_DOWNLOADERS = {
     'bilibili': BilibiliDownloader,
     'youtube': YoutubeDownloader,
+    'local': LocalVideoDownloader,
 }
 
 
