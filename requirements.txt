@@ -1,17 +1,6 @@
-# 增强版视频转写工具依赖（支持大模型优化）
-
-# 核心依赖
-yt-dlp>=2024.0.0              # 视频下载
-faster-whisper>=1.0.0         # 音频转写
-modelscope>=1.0.0             # 模型下载
-opencc-python-reimplemented   # 繁简转换
-
-# 大模型 API（根据需要选择安装）
-openai>=1.0.0                 # OpenAI API（支持 OpenAI、国内兼容 API）
-anthropic>=0.18.0             # Anthropic Claude API（可选）
-
-# 注意:
-# 1. 需要先安装 FFmpeg: https://ffmpeg.org/download.html
-# 2. 使用 tiny 模型，速度最快
-# 3. 需要配置 config.json 文件（参考 config.example.json）
-# 4. 提示词文件在 prompts/ 目录，可自定义修改
+yt-dlp>=2024.0.0           
+faster-whisper>=1.0.0         
+modelscope>=1.0.0             
+opencc-python-reimplemented  
+openai>=1.0.0             
+anthropic>=0.18.0            
