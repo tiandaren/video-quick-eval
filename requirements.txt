@@ -1,6 +1,0 @@
-yt-dlp>=2024.0.0           
-faster-whisper>=1.0.0         
-modelscope>=1.0.0             
-opencc-python-reimplemented  
-openai>=1.0.0             
-anthropic>=0.18.0            

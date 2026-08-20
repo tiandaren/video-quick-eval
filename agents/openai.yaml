@@ -1,0 +1,6 @@
+interface:
+  display_name: "Video Quick Eval"
+  short_description: "Fast video transcription and analysis"
+  default_prompt: "Use $video-quick-eval to transcribe or evaluate this video."
+policy:
+  allow_implicit_invocation: true

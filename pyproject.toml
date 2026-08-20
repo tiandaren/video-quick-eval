@@ -1,0 +1,25 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "video-quick-eval"
+version = "0.4.0"
+description = "Fast local and online video transcription for Codex"
+readme = "README.md"
+license = {file = "LICENSE"}
+requires-python = ">=3.11"
+dependencies = [
+  "yt-dlp>=2026.8.19",
+  "faster-whisper>=1.0.0,<2.0.0",
+  "opencc-python-reimplemented",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8,<9"]
+
+[project.scripts]
+video-quick-eval = "transcribe:main"
+
+[tool.setuptools]
+py-modules = ["transcribe"]
